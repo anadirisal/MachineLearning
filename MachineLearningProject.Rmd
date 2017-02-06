@@ -1,0 +1,143 @@
+---
+title       : Machine Learning Project  
+subtitle    : How well are you exercising? Factors that affect your exercise.
+author      : ARisal
+
+---
+## Project Introduction
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Data
+
+The training data for this project are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+## Goal
+
+The goal of your project is to predict the manner in which they did the exercise. This is the “classe” variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+## Executive Summary
+This was my first attempt at Machine Learning. From the information I had gathered, I took the following steps to complete this project. 
+The steps taken to complete the project are as follows:
+
+- Preparation of Data 
+- Preparation of Features from the data
+- Analysis of the algorithm and rethinking of the features to make the run time under 15 minutes. 
+- Execution of the algorithm, cross validation and in-sample error from the prediction
+- Final output of the prediction 
+
+
+
+
+## Preparation of the Data
+It was important to load the right libraries and read the inputs -  training as well as the test data.
+```{r}
+# load the libraries
+library(caret)
+library(gbm)
+
+# load the Training and the Testing data
+set.seed(1119)
+testing = read.csv("~/Downloads/pml-testing.csv")
+training = read.csv("~/Downloads/pml-training.csv")
+```
+
+## Preparation of Features from the data
+
+To choose the right predictors from the 159 variables provided, we go thru a pruning process since taking all of the variables will be 
+very time consuming. The measures we have taken are
+
+- Pruning out variables with near zero variance
+- Pruning out variables that are almost always NA
+- Pruning out names and timestamps that are not factors for predictions
+
+
+```{r}
+
+dim(training)
+nzv <- nearZeroVar(training,freqCut=80/20)
+training2 <- training[, -nzv]
+dim(training2)
+
+# remove variables that are almost always NA
+mostlyNA <- sapply(training2, function(x) mean(is.na(x))) > 0.80
+training3 <- training2[, mostlyNA==F]
+dim(training3)
+
+# remove variables that are names and timestamps
+training4 <- training3[, -(1:7)]
+dim(training4)
+names(training4)
+```
+
+## Analysis of the algorithm and rethinking of the features to make the run time under 15 minutes. 
+Additional pruning was carried out since these previous steps lowered the variables from 159 to 52 but we needed to go further. We decided to utilize the previous runs of the model and prune out all the variables that did not impact the 'random forest' model's accuracy. We only used the top 20 variables that the model utilized. This lowered the run time from more than 1 hour to just 15 minutes (which was the time limit I used.)
+
+```{r}
+
+# keep only the top 20 variables due to the run time issue
+myNZVvars <- c("classe","yaw_belt", "pitch_forearm", "pitch_belt", "magnet_dumbbell_z","magnet_dumbbell_y",
+                "roll_forearm","accel_belt_z","gyros_belt_z", "roll_dumbbell", "magnet_dumbbell_x", 
+                "magnet_belt_z","accel_dumbbell_y", "magnet_belt_y", "accel_forearm_x", "accel_dumbbell_z", 
+                "total_accel_dumbbell","magnet_belt_x", "magnet_forearm_z", "roll_arm", "yaw_arm")
+training5 <- training4[myNZVvars]
+head(training5)
+dim(training5)
+
+
+# Make sure the output stays as a factor variable.
+
+training5$classe <- as.factor(training5$classe)
+
+# Split the data into training and validation data so that we can get cross validation with in-sample errors
+set.seed(2229) 
+inTrain <- createDataPartition(training5$classe, p = 0.6, list = FALSE)
+trainingFinal <- training5[inTrain, ]
+validatingFinal <- training5[-inTrain, ]
+```
+
+
+## Execution of the algorithm, cross validation and in-sample error from the prediction
+One more steps I have taken is to use parallel processing so that 4 cores could be used rather than just 1.
+```{r}
+
+# Use RANDOM FOREST method and since it will take a long time, we use multiple cores for parallel processing
+library(doMC)
+registerDoMC(cores = 4)
+fit_rf <- train(classe ~ ., data = trainingFinal, method = "rf", verbose=FALSE)
+print(fit_rf, digits=4)
+
+# Creating the final model
+fit_rf$finalModel
+
+# Variable Importance plots were created. These are the variables I used for my factors for the algorithm when I ran it subsequent times.
+plot(varImp(fit_rf, scale = FALSE))
+
+
+#Predicting in-sample error
+predict <- predict(fit_rf,newdata=validatingFinal)
+confusionMatrix(predict,validatingFinal$classe)
+```
+
+## Final output of the prediction 
+Since our in sample accuracy was 98.9%, we feel confident to use this result on prediction on the test data.
+
+
+```{r}
+# Before predicting the test data, only columns from our variable selection should be considered:
+
+testing<-testing[,intersect(names(trainingFinal),names(testing))] 
+
+# Finally, the prediction on the testing data
+predict(fit_rf, testing)
+
+
+```
+
+We tested the 20 results that were provided with the correct answer. We were 20 out of 20 or 100% correct on our prediction.
+
